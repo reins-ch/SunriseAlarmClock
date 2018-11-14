@@ -26,6 +26,7 @@
 #include "PinChangeInterrupt.h"
 #include "DCF77.h"
 #include <RotaryEncoder.h>
+#include <TimerOne.h>
 #include <Time.h>
 #include <TimeLib.h>
 #include <OneButton.h>
@@ -50,12 +51,16 @@
 #define DURATION 3 // enum for setting time
 
 //////////// Internal (functionality) states
-boolean alarmState = true; // if the alarm is primed
-boolean lightState = false; // if the light is on
+boolean alarmEnabled = true; // if the alarm is primed
+boolean lightOn = false; // if the light is on
 
 //////////// UI states
-boolean timeState = false; // if the time is modifieable or not
-boolean setAlarm = false; // if the alarm is modifiable or not
+enum uiStates {
+  mainView,
+  setAlarmView,
+  setTimeView
+};
+uiStates uiState = mainView;
 
 //////////// Variables being changed by the user
 byte timeHour = 0; // 0 - 23
@@ -118,8 +123,8 @@ void setup() {
   // digitalWrite(PWM_PIN, LOW);
 
   // Initialize OneButton.h functionality for encoder button
-  encoderBtn.attachClick(toggleLightState);
-  encoderBtn.attachDoubleClick(toggleAlarmState);
+  encoderBtn.attachClick(toggleLightOn);
+  encoderBtn.attachDoubleClick(toggleAlarmEnabled);
   encoderBtn.attachLongPressStop(switchToSetAlarmView);
 
   // Initialize encoder wheel
@@ -136,7 +141,7 @@ void zeroCrossInt() { // function to be fired at the zero crossing to dim the li
   // Every zerocrossing thus: (50Hz)-> 10ms (1/2 Cycle) For 60Hz => 8.33ms (10.000/120)
   // 10ms=10000us
   // (10000us - 10us) / 128 = 75 (Approx) For 60Hz =>65
-  if (lightState) {
+  if (lightOn) {
     int dimtime = (75 * lightIntensity); // For 60Hz =>65
     delayMicroseconds(dimtime);   // Off cycle
     digitalWrite(AC_LOAD, HIGH);  // triac firing
@@ -148,13 +153,20 @@ void zeroCrossInt() { // function to be fired at the zero crossing to dim the li
 /**
    A single click function of the encoder button
 */
-void toggleLightState() {
-  // if (lightState) {
+void toggleLightOn () {
+  // if (lightOn) {
   //   analogWrite(PWM_PIN, 0);
   // } else {
   //   analogWrite(PWM_PIN, lightIntensity);
   // }
-  lightState = !lightState;
+  lightOn = !lightOn;
+}
+
+/**
+   A double click function of the encoder button
+*/
+void toggleAlarmEnabled () {
+  alarmEnabled = !alarmEnabled;
 }
 
 /**
@@ -168,16 +180,10 @@ void cycleSetAlarm() {
 /**
    A single click function of the encoder button
 */
+
 void cycleSetTime() {
   varToEdit = (varToEdit == MINUTE ? HOUR : varToEdit + 1);
   lastSecond = second();
-}
-
-/**
-   A double click function of the encoder button
-*/
-void toggleAlarmState () {
-  alarmState = !alarmState;
 }
 
 /**
@@ -187,8 +193,9 @@ void switchToSetTimeView() {
   ssd1306_clearScreen();
   timeHour = hour();
   timeMinute = minute();
-  setAlarm = false;
-  timeState = true;
+  uiState = setTimeView;
+  // setAlarm = false;
+  // timeState = true;
   encoderBtn.attachClick(cycleSetTime);
   encoderBtn.attachDoubleClick(switchToSetAlarmView);
   encoderBtn.attachLongPressStop(switchToMainView);
@@ -201,8 +208,9 @@ void switchToSetTimeView() {
 */
 void switchToSetAlarmView () {
   ssd1306_clearScreen();
-  timeState = false;
-  setAlarm = true;
+  uiState = setAlarmView;
+  // timeState = false;
+  // setAlarm = true;
   encoderBtn.attachClick(cycleSetAlarm);
   encoderBtn.attachDoubleClick(switchToSetTimeView);
   encoderBtn.attachLongPressStop(switchToMainView);
@@ -214,14 +222,15 @@ void switchToSetAlarmView () {
 */
 void switchToMainView () {
   ssd1306_clearScreen();
-  if (timeState) {
+  if (uiState == setTimeView) {
     setTime(timeHour, timeMinute, 0, 14, 3, 15);
   }
-  timeState = false;
-  setAlarm = false;
+  uiState = mainView;
+  // timeState = false;
+  // setAlarm = false;
   varToEdit = HOUR;
-  encoderBtn.attachClick(toggleLightState);
-  encoderBtn.attachDoubleClick(toggleAlarmState);
+  encoderBtn.attachClick(toggleLightOn);
+  encoderBtn.attachDoubleClick(toggleAlarmEnabled);
   encoderBtn.attachLongPressStop(switchToSetAlarmView);
 }
 
@@ -259,7 +268,7 @@ void loop() {
   //   setTime(DCFtime);
   // }
 
-  if (lightState && !setAlarm && (encDir != 0)) {
+  if (lightOn && uiState != setAlarmView && (encDir != 0)) {
     // change brightness of light when on main view
     if (encDir == ENC_CW) {
       lightIntensity = (lightIntensity > 120 - encSpeed ? 
@@ -271,7 +280,7 @@ void loop() {
     // analogWrite(PWM_PIN, lightIntensity);
   }
 
-  if (setAlarm) { // handle changing of the alarm time
+  if (uiState == setAlarmView) { // handle changing of the alarm time
     switch (varToEdit) {
       case HOUR:
         handleAlarmTime(encDir, alarmHour, 23);
@@ -286,7 +295,7 @@ void loop() {
     }
   }
 
-  if (timeState) { // handle changing of the time
+  if (uiState == setTimeView) { // handle changing of the time
     switch (varToEdit) {
       case HOUR:
         handleAlarmTime(encDir, timeHour, 23);
@@ -297,30 +306,31 @@ void loop() {
     }
   }
 
-  if (alarmState && isAlarmOn()) {
+  if (alarmEnabled && isAlarmOn()) {
     // do alarm handling here (incrementing alarmIntensity)
     if (alarmIntensity == 255) { //Alarm ist zu Ende
-      lightState = true;
+      lightOn = true;
       lightIntensity = 255;
       alarmIntensity = 0;
     }
   }
 
   // UI stuff
-  if ((setAlarm || timeState) && ((second() - lastSecond) + 60) % 60 > 15) {
-    // switch back to main view after 15 seconds of idling in timeState or setAlarm
-    switchToMainView(); 
+  if (millis() - lastMillis > 250) { //draw 4 frames per second
+    if (uiState != mainView && ((second() - lastSecond) + 60) % 60 > 15) {
+      // switch back to main view after 15 seconds of idling in timeState or setAlarm
+      switchToMainView(); 
+    }
+    if (uiState == setAlarmView) {
+      drawSetAlarmView(rotated);
+    } else if (uiState == setTimeView) {
+      drawSetTimeView(rotated);
+    } else {
+      drawMainView();
+    }
+    drawHeader();
+    lastMillis = millis();
   }
-  if (setAlarm) {
-    drawSetAlarmView(rotated);
-  } else if (timeState) {
-    drawSetTimeView(rotated);
-  } else {
-    drawMainView();
-  }
-  drawHeader();
-
-  lastMillis = millis();
 }
 
 /**
@@ -330,7 +340,7 @@ void loop() {
 void drawHeader() {
   char digits[8];
 
-  if (setAlarm) {
+  if (uiState == setAlarmView) {
     switch (varToEdit) {
       case HOUR:
       case MINUTE:
@@ -340,12 +350,12 @@ void drawHeader() {
         ssd1306_printFixed(0, 8, "Sonnenaufgangsdauer:", STYLE_NORMAL);
         break;
     }
-  } else if (timeState) {
+  } else if (uiState == setTimeView) {
     ssd1306_printFixed(0, 8, "Uhrzeit einstellen:", STYLE_NORMAL);
   } else {
     sprintf(digits, "%02d:%02d %02d'", alarmHour, alarmMinute, alarmDuration);
     ssd1306_printFixedN(0, 0, digits, STYLE_NORMAL, FONT_SIZE_2X);
-    if (alarmState) {
+    if (alarmEnabled) {
       ssd1306_drawBitmap(112, 0, 16, 16, bell);
     } else {
       ssd1306_drawBitmap(112, 0, 16, 16, empty);
