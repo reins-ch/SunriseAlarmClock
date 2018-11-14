@@ -25,8 +25,8 @@
 // G to GND, V to 3,3V ***MUST BE 3,3V***
 #include "PinChangeInterrupt.h"
 #include "DCF77.h"
+#include <FrequencyTimer2.h>
 #include <RotaryEncoder.h>
-#include <TimerOne.h>
 #include <Time.h>
 #include <TimeLib.h>
 #include <OneButton.h>
@@ -41,7 +41,7 @@
 #define ENC_PIN_A 5 // Pin CLK of Encoder
 #define ENC_PIN_B 6 // Pin DT of Encoder
 
-#define AC_LOAD 3   // Output to Opto Triac pin
+#define AC_LOAD 11   // Output to Opto Triac pin
 
 #define ENC_CW 1 // encoder rotating clockwise
 #define ENC_CCW -1 // encoder rotating counter-clockwise
@@ -53,6 +53,8 @@
 //////////// Internal (functionality) states
 boolean alarmEnabled = true; // if the alarm is primed
 boolean lightOn = false; // if the light is on
+boolean hasLightOnChanged = false; // if the variable "lightOn" has changed
+int8_t encDir = 0;
 
 //////////// UI states
 enum uiStates {
@@ -113,6 +115,11 @@ void setup() {
   pinMode(AC_LOAD, OUTPUT);                    // Set AC Load pin as output
   attachInterrupt(0, zeroCrossInt, RISING); // Choose the zero cross interrupt # from the table above
 
+  // set frequency for phase cutting to frequency of mains voltage
+  FrequencyTimer2::setPeriod(50);
+  FrequencyTimer2::enable();
+  FrequencyTimer2::setOnOverflow(turnOnTriac);
+
   // Initialize OLED screen
   ssd1306_128x64_i2c_init();
   ssd1306_fillScreen( 0x00 );
@@ -141,12 +148,31 @@ void zeroCrossInt() { // function to be fired at the zero crossing to dim the li
   // Every zerocrossing thus: (50Hz)-> 10ms (1/2 Cycle) For 60Hz => 8.33ms (10.000/120)
   // 10ms=10000us
   // (10000us - 10us) / 128 = 75 (Approx) For 60Hz =>65
-  if (lightOn) {
+  if (hasLightOnChanged) {
+    hasLightOnChanged = false;
+    if (lightOn) { // the light was just turned on
+      int dimtime = (75 * lightIntensity); // For 60Hz =>65
+      delayMicroseconds(dimtime);          // Off cycle
+      digitalWrite(AC_LOAD, HIGH);         // triac firing
+      delayMicroseconds(10);               // triac On propogation delay (for 60Hz use 8.33)
+      digitalWrite(AC_LOAD, LOW);          // triac Off
+    } else { // the light was just turned off
+    }
+  } else if (encDir != 0 && lightOn) {
     int dimtime = (75 * lightIntensity); // For 60Hz =>65
-    delayMicroseconds(dimtime);   // Off cycle
-    digitalWrite(AC_LOAD, HIGH);  // triac firing
-    delayMicroseconds(10);        // triac On propogation delay (for 60Hz use 8.33)
-    digitalWrite(AC_LOAD, LOW);   // triac Off
+    delayMicroseconds(dimtime);          // Off cycle
+    digitalWrite(AC_LOAD, HIGH);         // triac firing
+    delayMicroseconds(10);               // triac On propogation delay (for 60Hz use 8.33)
+  }
+  digitalWrite(AC_LOAD, LOW); // triac Off 
+}
+
+/**
+ * Function to be fired everytime the FrequencyTimer2 is overflowing
+ */
+void turnOnTriac() {
+  if (lightOn) {
+    digitalWrite(AC_LOAD, HIGH);
   }
 }
 
@@ -160,6 +186,7 @@ void toggleLightOn () {
   //   analogWrite(PWM_PIN, lightIntensity);
   // }
   lightOn = !lightOn;
+  hasLightOnChanged = true;
 }
 
 /**
@@ -249,7 +276,7 @@ void encoderInterrupt () {
 
 void loop() {
   encoderBtn.tick(); // check state of encoder Button
-  int8_t encDir = encoder.getDirection();
+  encDir = encoder.getDirection();
   
   // Persist the last direction so the UI doesn't flash rapidly when the encoder is turned,
   // but the variable to set isn't displayed because it's an odd second
@@ -268,7 +295,8 @@ void loop() {
   //   setTime(DCFtime);
   // }
 
-  if (lightOn && uiState != setAlarmView && (encDir != 0)) {
+  if (lightOn && (encDir != 0) && uiState == mainView)
+  {
     // change brightness of light when on main view
     if (encDir == ENC_CW) {
       lightIntensity = (lightIntensity > 120 - encSpeed ? 
