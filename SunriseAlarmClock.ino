@@ -25,8 +25,8 @@
 // G to GND, V to 3,3V ***MUST BE 3,3V***
 #include "PinChangeInterrupt.h"
 #include "DCF77.h"
-#include <FrequencyTimer2.h>
 #include <RotaryEncoder.h>
+#include <TimerOne.h>
 #include <Time.h>
 #include <TimeLib.h>
 #include <OneButton.h>
@@ -41,7 +41,7 @@
 #define ENC_PIN_A 5 // Pin CLK of Encoder
 #define ENC_PIN_B 6 // Pin DT of Encoder
 
-#define AC_LOAD 11   // Output to Opto Triac pin
+#define AC_LOAD 11   // Output to Opto Triac pin, has to be 11 (Timer2)
 
 #define ENC_CW 1 // encoder rotating clockwise
 #define ENC_CCW -1 // encoder rotating counter-clockwise
@@ -53,8 +53,7 @@
 //////////// Internal (functionality) states
 boolean alarmEnabled = true; // if the alarm is primed
 boolean lightOn = false; // if the light is on
-boolean hasLightOnChanged = false; // if the variable "lightOn" has changed
-int8_t encDir = 0;
+boolean syncTimer1ToMains = false; // if the zeroCrossInterrupt should sync the Timer1
 
 //////////// UI states
 enum uiStates {
@@ -85,12 +84,9 @@ RotaryEncoder encoder(ENC_PIN_A, ENC_PIN_B);
 
 //////////// Loop Variables
 uint32_t encLastMillis; // last time read
-uint16_t encCount; // running count of encoder clicks
-uint16_t encSpeed; // last calculated speed in clicks/second
-uint32_t lastMillis; // last time read
-uint8_t lastSecond; // the last second any "set_View" was opened
-boolean rotated; // if encoder was rotated
-uint8_t persistRotation; // count the number off loops to persist the last turned direction for the UI
+uint16_t encCount;      // running count of encoder clicks
+uint16_t encSpeed;      // last calculated speed in clicks/second
+uint8_t lastSecond;     // the last second any "set_View" was opened
 
 const PROGMEM uint8_t bell [] = {
   0x00, 0x00, 0x00, 0xE0, 0xF8, 0xFC, 0xFC, 0xFF, 0xFF, 0xFF, 0xFC, 0xFC, 0xF8, 0xE0, 0x00, 0x00,
@@ -116,9 +112,9 @@ void setup() {
   attachInterrupt(0, zeroCrossInt, RISING); // Choose the zero cross interrupt # from the table above
 
   // set frequency for phase cutting to frequency of mains voltage
-  FrequencyTimer2::setPeriod(50);
-  FrequencyTimer2::enable();
-  FrequencyTimer2::setOnOverflow(turnOnTriac);
+  Timer1.initialize(10000);
+  Timer1.attachInterrupt(turnOnTriac);
+  Timer1.stop();
 
   // Initialize OLED screen
   ssd1306_128x64_i2c_init();
@@ -148,27 +144,19 @@ void zeroCrossInt() { // function to be fired at the zero crossing to dim the li
   // Every zerocrossing thus: (50Hz)-> 10ms (1/2 Cycle) For 60Hz => 8.33ms (10.000/120)
   // 10ms=10000us
   // (10000us - 10us) / 128 = 75 (Approx) For 60Hz =>65
-  if (hasLightOnChanged) {
-    hasLightOnChanged = false;
-    if (lightOn) { // the light was just turned on
-      int dimtime = (75 * lightIntensity); // For 60Hz =>65
-      delayMicroseconds(dimtime);          // Off cycle
-      digitalWrite(AC_LOAD, HIGH);         // triac firing
-      delayMicroseconds(10);               // triac On propogation delay (for 60Hz use 8.33)
-      digitalWrite(AC_LOAD, LOW);          // triac Off
-    } else { // the light was just turned off
-    }
-  } else if (encDir != 0 && lightOn) {
-    int dimtime = (75 * lightIntensity); // For 60Hz =>65
-    delayMicroseconds(dimtime);          // Off cycle
+  if (syncTimer1ToMains) {
+    syncTimer1ToMains = false;
+    delayMicroseconds(75 * lightIntensity); // Off cycle
     digitalWrite(AC_LOAD, HIGH);         // triac firing
+    Timer1.start();
     delayMicroseconds(10);               // triac On propogation delay (for 60Hz use 8.33)
+    // digitalWrite(AC_LOAD, LOW);          // triac Off
   }
   digitalWrite(AC_LOAD, LOW); // triac Off 
 }
 
 /**
- * Function to be fired everytime the FrequencyTimer2 is overflowing
+ * Interrupt Function to be fired for Timer1
  */
 void turnOnTriac() {
   if (lightOn) {
@@ -186,7 +174,7 @@ void toggleLightOn () {
   //   analogWrite(PWM_PIN, lightIntensity);
   // }
   lightOn = !lightOn;
-  hasLightOnChanged = true;
+  syncTimer1ToMains = true;
 }
 
 /**
@@ -268,25 +256,24 @@ void encoderInterrupt () {
   encoder.tick(); // just call tick() to check the state.
   encCount++;
   if (millis() - encLastMillis > 500) {
-    encSpeed = encCount * (1);
+    encSpeed = encCount * (0.25);
     encLastMillis = millis();
     encCount = 0;
   }
 }
 
 void loop() {
+  uint32_t lastMillis;     // last time read
+  uint8_t persistRotation; // count the number off loops to persist the last turned direction for the UI
+  int8_t encDir = encoder.getDirection();
   encoderBtn.tick(); // check state of encoder Button
-  encDir = encoder.getDirection();
   
   // Persist the last direction so the UI doesn't flash rapidly when the encoder is turned,
   // but the variable to set isn't displayed because it's an odd second
-  if (encDir != 0) {
-    rotated = true;
+  if (encDir) {
     persistRotation = 50;
-  } else if (persistRotation == 0) {
-    rotated = false;
   } else {
-    persistRotation--;
+    persistRotation = persistRotation > 0 ? persistRotation-- : 0;
   }
 
   // time_t DCFtime = DCF.getTime(); // is there an new DCF77 time
@@ -295,7 +282,7 @@ void loop() {
   //   setTime(DCFtime);
   // }
 
-  if (lightOn && (encDir != 0) && uiState == mainView)
+  if (lightOn && encDir && uiState == mainView)
   {
     // change brightness of light when on main view
     if (encDir == ENC_CW) {
@@ -305,6 +292,7 @@ void loop() {
       lightIntensity = (lightIntensity < encSpeed ? 
                         5 : lightIntensity - encSpeed);
     }
+    syncTimer1ToMains = true;
     // analogWrite(PWM_PIN, lightIntensity);
   }
 
@@ -350,14 +338,17 @@ void loop() {
       switchToMainView(); 
     }
     if (uiState == setAlarmView) {
-      drawSetAlarmView(rotated);
+      drawSetAlarmView(persistRotation > 0);
     } else if (uiState == setTimeView) {
-      drawSetTimeView(rotated);
+      drawSetTimeView(persistRotation > 0);
     } else {
       drawMainView();
     }
     drawHeader();
     lastMillis = millis();
+    if (lightOn) {
+      syncTimer1ToMains = true;
+    }
   }
 }
 
