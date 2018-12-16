@@ -39,9 +39,6 @@
 
 #define AC_LOAD 4   // Output to Opto Triac pin
 
-#define ENC_CW 1 // encoder rotating clockwise
-#define ENC_CCW -1 // encoder rotating counter-clockwise
-
 #define HOUR 1 // enum for setting time
 #define MINUTE 2 // enum for setting time
 #define DURATION 3 // enum for setting time
@@ -59,11 +56,11 @@ enum uiStates {
 uiStates uiState = mainView;
 
 //////////// Variables being changed by the user
-byte timeHour = 0; // 0 - 23
-byte timeMinute = 0; // 0 - 59
-byte alarmHour = 6; // 0 - 23
-byte alarmMinute = 30; // 0 - 59
-byte alarmDuration = 15; // 0 - 30
+int8_t timeHour = 0; // 0 - 23
+int8_t timeMinute = 0; // 0 - 59
+int8_t alarmHour = 6; // 0 - 23
+int8_t alarmMinute = 30; // 0 - 59
+int8_t alarmDuration = 15; // 0 - 30
 int8_t lightIntensity = 95; // Dimming level (5-95)  5 = OFF, 95 = ON
 
 //////////// Internal Variables
@@ -375,17 +372,16 @@ void drawSetTimeView(boolean rotated) {
 
 /**
    Handles the functionality of changing a unit of the alarm
-   @param encDir uses constants ENC_CW and ENC_CCW
+   @param encDir -1 || 0 || +1
    @param &var the variable to change (alarmHour, alarmMinute, alarmDuration)
    @param maxNumber 23 for hour, 59 for minute, maybe 30 for duration
 */
-void handleAlarmTime(int8_t encDir, byte &var, byte maxNumber) {
-  if (encDir == ENC_CW) {
-    // code can be optimised better than modulo
-    var = (var == maxNumber ? 0 : var + 1);
-  } else if (encDir == ENC_CCW) {
-    var = (var == 0 ? maxNumber : var - 1);
-  }
+void handleAlarmTime(int8_t encDir, int8_t &var, byte maxNumber) {
+  var += encDir;
+  if (var == maxNumber + 1)
+    var = 0;
+  else if (var == -1)
+    var = maxNumber;
 }
 
 /**
