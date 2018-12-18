@@ -45,7 +45,9 @@
 
 #define MINUTESPERHOUR 60
 #define HOURSPERDAY 24
-#define MAXDURATION 11 // maximum duration of the alarm
+// (MAXDURATION-1) * CHANGESPERMINUTE bytes are needed during runtime, so be cautious 
+#define MAXDURATION 11 // maximum duration of the alarm + 1
+#define CHANGESPERMINUTE 12 // how many steps the light is making in rising, please only use whole divisors of 60
 
 // 150 is just my prefence for dimming speed control
 #define ENCODERSPEED 150
@@ -71,8 +73,8 @@ int8_t alarmDuration = 2; // 0 - 10
 int8_t lightIntensity = 95; // Dimming level (5-95)  5 = OFF, 95 = ON
 
 //////////// Internal Variables
-// store the dimming values for every 10 seconds
-uint8_t alarmValues[MAXDURATION*6];
+// store the dimming values for every CHANGESPERMINUTE
+uint8_t alarmValues[(MAXDURATION-1)*CHANGESPERMINUTE];
 uint8_t alarmValueIter = 0;
 byte varToEdit = HOUR; // HOUR | MINUTE | DURATION
 
@@ -115,7 +117,7 @@ void setup() {
   encoderBtn.attachLongPressStop(switchToSetAlarmView);
 
   // calculate the dimming value every 10 seconds
-  for (int i = 0; i < alarmDuration*6; i++) {
+  for (int i = 0; i < alarmDuration*CHANGESPERMINUTE; i++) {
     alarmValues[i] = dimValue(i);
   }
 }
@@ -188,7 +190,7 @@ void switchToMainView () {
   }
   if (uiState == setAlarmView) {
     // recalculate alarmValues array
-    for (int i = 0; i < alarmDuration * 6; i++) {
+    for (int i = 0; i < alarmDuration * CHANGESPERMINUTE; i++) {
       alarmValues[i] = dimValue(i);
     }
   }
@@ -249,7 +251,7 @@ void loop() {
     }
   }
 
-  if ((loopSecond - lastAlarmCheckSecond + SECS_PER_MIN) % 60 > 10 && alarmEnabled) {
+  if (((loopSecond - lastAlarmCheckSecond + SECS_PER_MIN) % SECS_PER_MIN > (SECS_PER_MIN/CHANGESPERMINUTE)) && alarmEnabled) {
     // handle light increasing if alarm is on
     static bool alarmOn;
     lastAlarmCheckSecond = loopSecond;
@@ -257,7 +259,7 @@ void loop() {
       lightIntensity = alarmValues[alarmValueIter];
       dimmer.setPower(lightIntensity);
       alarmValueIter++;
-      if (alarmValueIter > alarmDuration * 6) { // alarm is finished
+      if (alarmValueIter > alarmDuration * CHANGESPERMINUTE) { // alarm is finished
         alarmOn = false;
         alarmValueIter = 0;
         dimmer.setPower(95);
@@ -279,7 +281,7 @@ void loop() {
       // delay automatic switching to main view if rotated
       lastSecond = loopSecond;
     }
-    if (uiState != mainView && ((loopSecond - lastSecond) + 60) % 60 > 15) {
+    if (uiState != mainView && ((loopSecond - lastSecond) + SECS_PER_MIN) % SECS_PER_MIN > 15) {
       // switch back to main view after 15 seconds of idling in timeState or setAlarm
       switchToMainView(); 
     }
@@ -430,5 +432,5 @@ boolean isAlarmOn() {
  * @param i the time step
  */
 int8_t dimValue(int i) {
-  return (int) 5 * pow(pow(19.0, 1.0/(alarmDuration*6)), i);
+  return (int) 5 * pow(pow(19.0, 1.0/(alarmDuration*CHANGESPERMINUTE)), i);
 }
