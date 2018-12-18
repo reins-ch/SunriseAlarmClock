@@ -72,9 +72,9 @@ uiStates uiState = mainView;
 //////////// Variables being changed by the user
 int8_t timeHour = 0; // 0 - 23
 int8_t timeMinute = 0; // 0 - 59
-int8_t alarmHour = 0; // 0 - 23
-int8_t alarmMinute = 2; // 0 - 59
-int8_t alarmDuration = 2; // 0 - 10
+int8_t alarmHour = 6; // 0 - 23
+int8_t alarmMinute = 30; // 0 - 59
+int8_t alarmDuration = 10; // 0 - 10
 int8_t lightIntensity = 95; // Dimming level (5-95)  5 = OFF, 95 = ON
 
 //////////// Internal Variables
