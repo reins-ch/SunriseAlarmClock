@@ -1,30 +1,35 @@
 // -----
-// SunriseAlarmClock.ino - Prototye software for a sunrise alarm clock/ dimmable bedside lamp.
-// This class is implemented for use with the Arduino environment.
+// SunriseAlarmClock.ino - Prototye software for a sunrise alarm clock / dimmable bedside lamp.
+// This sketch is implemented for use with the Arduino environment.
 // Copyright (c) by Christoph Reinsch
 // -----
-// 04.10.2018 created by Christoph Reinsch
+// 18.12.2018 created by Christoph Reinsch
 // -----
 
 // What this software does:
-// - get the current time via DCF77
 // - use a rotary encoder with button to set the alarm time and duration
 //   - single click to toggle light on/off, rotate to set brightness
 //   - double click to switch alarm on/off
 //   - long press to toggle alarm edit mode, single click to switch the unit to edit, rotate to set value
+//   - double click in alarm edit mode to enter time edit mode
+//   - long press to exit edit modes
 // - use an AC pwm dimmer module to control any dimmable 230V bulb
+// - slowly dim the lamp for the set duration until full brightness before the set alarm time (following an exponential curve)
 
 // Rotary encoder setup:
 // Attach a pins CLK and DT to A2 and A3.
-// Attach SW pin to digital pin 13 (SW_PIN)
+// Attach SW pin to digital pin 7 (SW_PIN)
 // GND to GND, + to 3.3V
 
-// DCF board setup:
-// P1 to pin 7 (DCF_POWER)
-// T to pin 2 (DCF_PIN)
-// G to GND, V to 3,3V ***MUST BE 3,3V***
-// #include "PinChangeInterrupt.h"
-// #include "DCF77.h"
+// OLED setup (I2C):
+// SCL, SDA to SCL, SDA
+// GND to GND, VCC to 3.3V
+
+// AC Dimmer Setup
+// PWM to Pin 4 (AC_LOAD)
+// ZeroCrossing to Pin 2 (hardcoded in RBDDimmer.h due to hardware timer)
+// GND to GND, VCC to 3.3V
+
 #include <RotaryEncoder.h> // https://github.com/mathertel/RotaryEncoder
 #include <RBDdimmer.h> // https://github.com/RobotDynOfficial/Lib-RBD-Dimmer-for-Mega-UNO-Leonardo
 #include <Time.h>      // https://github.com/PaulStoffregen/Time/blob/master/Time.cpp
@@ -33,7 +38,7 @@
 #include "ssd1306.h"   // https://github.com/adafruit/Adafruit_SSD1306
 #include "nano_gfx.h"  // https://github.com/adafruit/Adafruit_SSD1306
 
-#define SW_PIN 13 // Pin of Encoder Button
+#define SW_PIN 7 // Pin of Encoder Button
 #define ENC_PIN_A 5 // Pin CLK of Encoder
 #define ENC_PIN_B 6 // Pin DT of Encoder
 
@@ -98,7 +103,7 @@ const PROGMEM uint8_t empty [] = {
 
 void setup() {
   Serial.begin(9600);
-  Serial.println("Prototype software for a sunrise alarm clock/ dimmable bedside lamp");
+  Serial.println("Prototype software for a sunrise alarm clock / dimmable bedside lamp");
   pinMode(SW_PIN, INPUT_PULLUP);
 
   // Initialize the dimming module
