@@ -428,7 +428,8 @@ void handleAlarmTime(int8_t encDir, int8_t &var, byte maxNumber) {
    Checks whether the rising alarm should be on at the moment
 */
 boolean isAlarmOn() {
-  return ((alarmHour - hour() + HOURSPERDAY) % HOURSPERDAY <= 1) && 
+  int hourChanges = (alarmMinute - alarmDuration) < 0; // true if the alarm starts in one hour and finishes in another
+  return ((alarmHour - hour() + HOURSPERDAY) % HOURSPERDAY <= hourChanges) && 
     ((alarmMinute - minute() + MINUTESPERHOUR) % MINUTESPERHOUR < alarmDuration);
 }
 
