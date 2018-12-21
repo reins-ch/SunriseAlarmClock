@@ -22,6 +22,8 @@ Have a look at the Fritzing file. There is also a written description at the top
   * ZeroCrossing to Pin 2 (hardcoded in RBDDimmer.h due to hardware timer)
   * GND to GND, VCC to 3.3V
 
+![The wiring diagram](Wiring.JPG "The wiring")
+
 ## How to use
 Again, take a look at the description at the top of the sketch or read on:
 * The encoder with its button is the only interface to the arduino.
